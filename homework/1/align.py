@@ -1,5 +1,8 @@
 import numpy as np
 
+MAX_SIZE = 500
+
+
 def get_channels(image):
     height = int(np.shape(image)[0] / 3)
     return (
@@ -51,16 +54,13 @@ def get_best_shift(static_channel, shifting_channel, max_shift=15):
     return best_x, best_y
 
 
-MAX_WIDTH = 500
-
-
 def get_compresed(channel):
     return channel[::2,::2]
 
 
 def get_fast_best_shift(static_channel, shifting_channel):
     pyramid = [(static_channel, shifting_channel)]
-    while (np.shape(static_channel)[0] > 500) or (np.shape(shifting_channel)[1] > 500):
+    while (np.shape(static_channel)[0] > MAX_SIZE) or (np.shape(shifting_channel)[1] > MAX_SIZE):
         static_channel = get_compresed(static_channel)
         shifting_channel = get_compresed(shifting_channel)
         pyramid.append((static_channel, shifting_channel))
