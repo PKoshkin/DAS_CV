@@ -47,18 +47,12 @@ def get_gradient_normal_matrix(brightness_matrix):
     ])
 
 
-def get_least_energy_continuation(gradient_normal_matrix, x, y, axis):
-    if axis != 0:
-        brightness_matrix = brightness_matrix.transpose()
-    result = gradient_normal_matrix[y][x] + min(
+def get_least_energy_continuation(gradient_normal_matrix, x, y):
+    return gradient_normal_matrix[y][x] + min(
         gradient_normal_matrix[y - 1][get_upper_index(x, np.shape(gradient_normal_matrix)[1])],
         gradient_normal_matrix[y - 1][x],
         gradient_normal_matrix[y - 1][get_lower_index(x)],
     )
-    if axis != 0:
-        brightness_matrix = brightness_matrix.transpose()
-        result = result.transpose()
-    return result
 
 
 def get_vertical_seam(gradient_normal_matrix):
@@ -66,7 +60,7 @@ def get_vertical_seam(gradient_normal_matrix):
     temp_matrix = [gradient_normal_matrix[0]]
     for y in range(shape[0] - 2, -1, -1):
         new_line = [
-            get_least_energy_continuation(gradient_normal_matrix, x, y, 0)
+            get_least_energy_continuation(gradient_normal_matrix, x, y)
             for x in range(shape[1])
         ]
     answers = [np.argmin(temp_matrix[-1])]
@@ -85,8 +79,14 @@ def get_cuted_verticaly_by_seam(image, seam):
     ])
 
 
-def get_cuted_verticaly(image):
+def get_cuted(image, axis):
+    if axis != 0:
+        image = np.swapaxes(image, 0, 1)
     brightness_matrix = get_brightness_matrix(image)
     gradient_normal_matrix = get_gradient_normal_matrix(brightness_matrix)
     seam = get_vertical_seam(gradient_normal_matrix)
-    return get_cuted_verticaly_by_seam(image, seam)
+    result = get_cuted_verticaly_by_seam(image, seam)
+    if axis != 0:
+        result = np.swapaxes(result, 0, 1)
+        image = np.swapaxes(image, 0, 1)
+    return result
