@@ -1,11 +1,8 @@
 import numpy as np
 
 
-def get_brightness_matrix(image, mask):
-    result = 0.299 * image[:,:,0] + 0.587 * image[:,:,1] + 0.114 * image[:,:,2]
-    if mask is not None:
-        result += np.shape(image)[0] * np.shape(image)[1] * mask
-    return result
+def get_brightness_matrix(image):
+    return 0.299 * image[:,:,0] + 0.587 * image[:,:,1] + 0.114 * image[:,:,2]
 
 
 def get_location(coordinate, size):
@@ -25,8 +22,11 @@ def get_derivative(brightness_matrix, axis):
     return result
 
 
-def get_gradient_normal_matrix(brightness_matrix):
-    return np.sqrt(get_derivative(brightness_matrix, 0) ** 2 + get_derivative(brightness_matrix, 1) ** 2)
+def get_gradient_normal_matrix(brightness_matrix, mask):
+    result = np.sqrt(get_derivative(brightness_matrix, 0) ** 2 + get_derivative(brightness_matrix, 1) ** 2)
+    if mask is not None:
+        result += np.shape(mask)[0] * np.shape(mask)[1] * mask
+    return result
 
 
 def get_seams_energy_matrix(gradient_normal_matrix):
@@ -57,12 +57,10 @@ def get_vertical_seam(seams_energy_matrix):
 
 
 def seam_carve(image, mode, mask=None):
+    brightness_matrix = get_brightness_matrix(image)
+    gradient_normal_matrix = get_gradient_normal_matrix(brightness_matrix, mask)
     if mode.split(' ')[0] != 'horizontal':
-        image = np.swapaxes(image, 0, 1)
-        if mask is not None:
-            mask = mask.transpose()
-    brightness_matrix = get_brightness_matrix(image, mask)
-    gradient_normal_matrix = get_gradient_normal_matrix(brightness_matrix)
+        gradient_normal_matrix = gradient_normal_matrix.transpose()
     seams_energy_matrix = get_seams_energy_matrix(gradient_normal_matrix)
     seam = get_vertical_seam(seams_energy_matrix)
     if mode.split(' ')[0] != 'horizontal':
