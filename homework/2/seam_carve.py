@@ -5,8 +5,8 @@ def get_brightness_matrix(image):
     return 0.299 * image[:,:,0] + 0.587 * image[:,:,1] + 0.114 * image[:,:,2]
 
 
-def get_location(coordinate, size):
-    return np.arange(max(0, coordinate - 1), min(coordinate + 2, size))
+def get_x_location(matrix, x, y):
+    return matrix[y, max(0, x - 1):min(x + 2, np.shape(matrix)[1])]
 
 
 def get_derivative(brightness_matrix, axis):
@@ -36,7 +36,7 @@ def get_seams_energy_matrix(gradient_normal_matrix):
     for y in range(1, shape[0]):
         seams_energy_matrix[y] += np.array([
             gradient_normal_matrix[y, x] +
-            np.min(seams_energy_matrix[(y - 1), get_location(x, shape[1])])
+            np.min(get_x_location(seams_energy_matrix, x, y - 1))
             for x in range(shape[1])
         ])
     return seams_energy_matrix
@@ -48,7 +48,7 @@ def get_vertical_seam(seams_energy_matrix):
     answer = np.argmin(seams_energy_matrix[-1])
     seam[shape[0] - 1, answer] += 1
     for y in range(shape[0] - 2, -1, -1):
-        min_index = np.argmin(seams_energy_matrix[y, get_location(answer, shape[1])]) - 1
+        min_index = np.argmin(get_x_location(seams_energy_matrix, answer, y)) - 1
         if answer == 0:
             min_index += 1
         answer += min_index
