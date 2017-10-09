@@ -5,7 +5,7 @@ from sklearn.svm import SVC
 
 def fit_and_classify(train_features, train_labels, test_features):
     model = SVC(kernel='linear')
-    model.fit(train_features, train_lables)
+    model.fit(train_features, train_labels)
     return model.predict(test_features)
 
 
