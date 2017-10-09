@@ -1,9 +1,12 @@
 import numpy as np
 from math import floor
 from collections import Counter
+from sklearn.svm import SVC
 
 def fit_and_classify(train_features, train_labels, test_features):
-    pass
+    model = SVC(kernel='linear')
+    model.fit(train_features, train_lables)
+    return model.predict(test_features)
 
 
 def extract_hog(image, cell_rows=4, cell_columns=4, bin_count=8, epsilon=1e-50, block_row_cells=2, block_collumn_cells=2):
@@ -29,7 +32,7 @@ def extract_hog(image, cell_rows=4, cell_columns=4, bin_count=8, epsilon=1e-50, 
         return np.arctan2(get_derivative(brightness_matrix, 0), get_derivative(brightness_matrix, 1))
 
     def get_bar_chart(gradient_normal_matrix, gradient_direction_matrix):
-        bar_chart = Counter()
+        bar_chart = Counter({i: 0.0 for i in range(bin_count)})
         for y in range(np.shape(gradient_normal_matrix)[0]):
             for x in range(np.shape(gradient_normal_matrix)[1]):
                 bar_chart[min(floor((gradient_direction_matrix[y][x] + np.pi) / (2 * np.pi) * bin_count), 7)] += gradient_normal_matrix[y][x]
