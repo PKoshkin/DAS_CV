@@ -9,7 +9,9 @@ def fit_and_classify(train_features, train_labels, test_features):
     return model.predict(test_features)
 
 
-def extract_hog(image, cell_rows=8, cell_columns=8, bin_count=11, epsilon=1e-50, block_row_cells=4, block_collumn_cells=4):
+def extract_hog(image, cell_rows=8, cell_columns=8, bin_count=11, epsilon=1e-50, block_row_cells=2, block_collumn_cells=2):
+    image = image[5:-5,5:-5,:]
+
     def get_brightness(image):
         return 0.299 * image[:,:,0] + 0.587 * image[:,:,1] + 0.114 * image[:,:,2]
 
