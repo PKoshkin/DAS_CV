@@ -39,7 +39,7 @@ def extract_hog(image, cell_rows=8, cell_columns=8, bin_count=11, epsilon=1e-50,
         bar_chart = Counter({i: 0.0 for i in range(bin_count)})
         for y in range(np.shape(gradient_normal_matrix)[0]):
             for x in range(np.shape(gradient_normal_matrix)[1]):
-                bar_chart[min(floor((gradient_direction_matrix[y][x] + np.pi) / (2 * np.pi) * bin_count), 7)] += gradient_normal_matrix[y][x]
+                bar_chart[min(floor((gradient_direction_matrix[y][x] + np.pi) / (2 * np.pi) * bin_count), bin_count - 1)] += gradient_normal_matrix[y][x]
         return bar_chart
 
     def get_cells_slices(shape):
