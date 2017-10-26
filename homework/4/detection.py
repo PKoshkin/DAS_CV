@@ -47,11 +47,15 @@ def get_images(img_dir, shape):
         imread(join(img_dir, file_name))
         for file_name in file_names
     ]
+    old_sizes = [
+        np.shape(image)
+        for image in source_images
+    ]
     resized_images = np.array([
         resize(image, shape, mode='reflect')
         for image in source_images
     ])
-    return resized_images, file_names
+    return resized_images, file_names, old_sizes
 
 def build_model(model, input_shape, output_size):
     regularization_lambda = 5e-6
@@ -164,9 +168,15 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
 
 
 def detect(model, test_img_dir):
-    test_x, file_names = get_images(test_img_dir, shape=IMG_SIZE)
+    shape = IMG_SIZE
+    test_x, file_names, old_sizes = get_images(test_img_dir, shape)
     answers = model.predict(test_x, batch_size=128)
+    resized_back_answers = np.array([[
+            int(coord * old_shape[i % 2] / shape[i % 2])
+            for i, coord in enumerate(answer)
+        ] for old_shape, answer in zip(old_sizes, answers)
+    ])
     return {
         file_name: answer
-        for file_name, answer in zip(file_names, answers)
+        for file_name, answer in zip(file_names, resized_back_answers)
     }
