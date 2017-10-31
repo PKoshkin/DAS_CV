@@ -20,45 +20,70 @@ from os import listdir
 IMG_SIZE = (100, 100, 3)
 
 
-def get_data(img_dir, train_gt, shape):
+class ResizeImageGenerator:
+    def __init__(self, shape):
+        self._shape = shape
+
+    @staticmethod
+    def resize(image, answer, shape):
+        return (
+            np.array(resize(image, shape, mode='reflect')),
+            np.array([
+                int(coord * shape[i % 2] / np.shape(image)[i % 2])
+                for i, coord in enumerate(answer)
+            ])
+        )
+
+    def _resize(self, image, answer):
+        return ResizeImageGenerator.resize(image, answer, self._shape)
+
+    def flow(self, x, y, batch_size=32):
+        return BatchIterator(x, y, self, batch_size)
+
+
+class BatchIterator:
+    def __init__(self, x, y, image_generator, batch_size):
+        self._x = x
+        self._y = y
+        self._image_generator = image_generator
+        self._batch_size = batch_size
+
+    def _get_batch(self):
+        random_indexes = np.random.permutation(len(self._x))[:self._batch_size]
+        return self._x[random_indexes], self._y[random_indexes]
+    
+    def _resize(self, x, y):
+        return self._image_generator._resize(x, y)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        x, y = self._get_batch()
+        x_batch, y_batch = [], []
+        for current_x, current_y in zip(x, y):
+            resized_x, resized_y = self._resize(current_x, current_y)
+            x_batch.append(resized_x)
+            y_batch.append(resized_y)
+        return np.array(x_batch), np.array(y_batch)
+
+
+def get_images(img_dir):
     file_names = listdir(img_dir)
-    source_images = [
+    return np.array([
         imread(join(img_dir, file_name))
         for file_name in file_names
-    ]
-    source_answers = [
+    ])
+
+def get_answers(img_dir, train_gt):
+    file_names = listdir(img_dir)
+    return np.array([
         train_gt[file_name]
         for file_name in file_names
-    ]
-    resized_images = np.array([
-        resize(image, shape, mode='reflect')
-        for image in source_images
     ])
-    resized_answers = np.array([[
-            int(coord * shape[i % 2] / np.shape(image)[i % 2])
-            for i, coord in enumerate(answer)
-        ] for image, answer in zip(source_images, source_answers)
-    ])
-    return resized_images, resized_answers
-
-def get_images(img_dir, shape):
-    file_names = listdir(img_dir)
-    source_images = [
-        imread(join(img_dir, file_name))
-        for file_name in file_names
-    ]
-    old_sizes = [
-        np.shape(image)
-        for image in source_images
-    ]
-    resized_images = np.array([
-        resize(image, shape, mode='reflect')
-        for image in source_images
-    ])
-    return resized_images, file_names, old_sizes
 
 def build_model(model, input_shape, output_size):
-    regularization_lambda = 5e-6
+    regularization_lambda = 5e-3
 
     def add_Conv2D_relu(model, n_filter, filters_size, input_shape=None):
         if input_shape is not None:
@@ -98,8 +123,10 @@ def build_model(model, input_shape, output_size):
     model.add(Dense(output_size))
 
 class ValidationCallback:
-    def __init__(self, model, test_x, test_y):
+    def __init__(self, model, generator, steps):
         self._model = model
+        self._generator = generator
+        self._steps = steps
 
     def set_model(self, model):
         pass
@@ -117,7 +144,7 @@ class ValidationCallback:
         pass
 
     def on_epoch_end(self, epoch, logs):
-        print(model.evaluate(X_test, y_test, batch_size=128))
+        print(model.evaluate_generator(self._generator, self._steps))
 
     def on_batch_begin(self, batch, logs):
         pass
@@ -132,7 +159,8 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
     code_dir = dirname(abspath(__file__))
     model_path = join(code_dir, 'facepoints_model.hdf5')
 
-    train_x, train_y = get_data(train_img_dir, train_gt, img_size)
+    train_x = get_images(train_img_dir)
+    train_y = get_answers(train_img_dir, train_gt)
     if validation:
         train_x, test_x, train_y, test_y = train_test_split(
             resized_x, resized_y, test_size=0.3, random_state=42
@@ -146,22 +174,25 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
 
     model.compile(
         loss='mean_squared_error',
-        optimizer=Adam(),
+        optimizer=Adam(decay=1e-3),
         metrics=['mse']
     )
 
-    datagen = ImageDataGenerator()
+    datagen = ResizeImageGenerator(img_size)
     if validation:
         model.fit_generator(
-            datagen.flow(train_x, train_y, batch_size=batch_size),
+            datagen.flow(train_x, train_y, batch_size),
             steps_per_epoch=int(len(train_y) / batch_size),
-            validation_data=(test_x, test_y),
             epochs=epochs,
-            callbacks=[ValidationCallback(model, test_x, test_y)]
+            callbacks=[ValidationCallback(
+                model,
+                datagen.flow(test_x, test_y, batch_size),
+                int(len(test_y) / batch_size),
+            )]
         )
     else:
         model.fit_generator(
-            datagen.flow(train_x, train_y, batch_size=batch_size),
+            datagen.flow(train_x, train_y, batch_size),
             steps_per_epoch=int(len(train_y) / batch_size),
             epochs=epochs
         )
@@ -169,12 +200,16 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
 
 def detect(model, test_img_dir):
     shape = IMG_SIZE
-    test_x, file_names, old_sizes = get_images(test_img_dir, shape)
-    answers = model.predict(test_x, batch_size=128)
+    test_x = get_images(test_img_dir)
+    resized_test_x = np.array([
+        resize(x, shape, mode='reflect')
+        for x in test_x
+    ])
+    answers = model.predict(resized_test_x, batch_size=128)
     resized_back_answers = np.array([[
-            int(coord * old_shape[i % 2] / shape[i % 2])
+            int(coord * np.shape(image)[i % 2] / shape[i % 2])
             for i, coord in enumerate(answer)
-        ] for old_shape, answer in zip(old_sizes, answers)
+        ] for image, answer in zip(test_x, answers)
     ])
     return {
         file_name: answer
