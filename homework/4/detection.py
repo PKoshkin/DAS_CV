@@ -45,7 +45,7 @@ class LabeledBatchIterator:
 
 
 def build_model(model, input_shape, output_size):
-    regularization_lambda = 5e-3
+    regularization_lambda = 1e-2
 
     def add_Conv2D_relu(model, n_filter, filters_size, input_shape=None):
         if input_shape is not None:
@@ -61,18 +61,18 @@ def build_model(model, input_shape, output_size):
                 activation='elu'
             ))
 
-    add_Conv2D_relu(model, 64, (3, 3), input_shape)
+    add_Conv2D_relu(model, 32, (3, 3), input_shape)
+    add_Conv2D_relu(model, 32, (3, 3))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(BatchNormalization())
+
+    add_Conv2D_relu(model, 64, (3, 3))
     add_Conv2D_relu(model, 64, (3, 3))
     model.add(MaxPooling2D((2, 2)))
     model.add(BatchNormalization())
 
     add_Conv2D_relu(model, 128, (3, 3))
     add_Conv2D_relu(model, 128, (3, 3))
-    model.add(MaxPooling2D((2, 2)))
-    model.add(BatchNormalization())
-
-    add_Conv2D_relu(model, 256, (3, 3))
-    add_Conv2D_relu(model, 256, (3, 3))
     model.add(MaxPooling2D((2, 2)))
     model.add(BatchNormalization())
 
@@ -116,7 +116,7 @@ class ValidationCallback:
 
 
 def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
-    epochs = 1 if fast_train else 1000
+    epochs = 1 if fast_train else 200
     batch_size = 32
     label_len = 28
     img_size = IMG_SIZE
@@ -128,6 +128,11 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
     if validation:
         train_filenames = all_filenames[int(len(train_filenames) * validation):]
         test_filenames = all_filenames[:int(len(train_filenames) * validation)]
+        train_steps_per_epoch = 8 if fast_train else int(len(train_filenames) / batch_size)
+        test_steps_per_epoch = 8 if fast_train else int(len(test_filenames) / batch_size)
+    else:
+        steps_per_epoch = 8 if fast_train else int(len(all_filenames) / batch_size)
+        
 
     if fast_train or not exists(model_path):
         model = Sequential()
@@ -144,18 +149,18 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
     if validation:
         model.fit_generator(
             LabeledBatchIterator(train_filenames, train_img_dir, img_size, batch_size, train_gt),
-            steps_per_epoch=int(len(train_filenames) / batch_size),
+            steps_per_epoch=train_steps_per_epoch,
             epochs=epochs,
             callbacks=[ValidationCallback(
                 model,
                 LabeledBatchIterator(test_filenames, train_img_dir, img_size, batch_size, train_gt),
-                int(len(test_filenames) / batch_size)
+                test_steps_per_epoch
             )]
         )
     else:
         model.fit_generator(
             LabeledBatchIterator(all_filenames, train_img_dir, img_size, batch_size, train_gt),
-            steps_per_epoch=int(len(all_filenames) / batch_size),
+            steps_per_epoch=steps_per_epoch,
             epochs=epochs
         )
 
@@ -163,7 +168,7 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
 def detect(model, test_img_dir):
     img_size = IMG_SIZE
     filenames = listdir(test_img_dir)
-    batch_size = 128
+    batch_size = 4
     random_indexes = np.random.permutation(len(filenames))[:batch_size]
     filenames = [filenames[index] for index in random_indexes]
     test_images = np.array([
