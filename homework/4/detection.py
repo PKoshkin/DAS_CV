@@ -5,8 +5,6 @@ from skimage.io import imread
 
 from sklearn.model_selection import train_test_split
 
-import threading
-
 from keras import regularizers
 from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Sequential, save_model, load_model
@@ -20,67 +18,31 @@ from os import listdir
 IMG_SIZE = (100, 100, 3)
 
 
-class ResizeImageGenerator:
-    def __init__(self, shape):
-        self._shape = shape
-
-    @staticmethod
-    def resize(image, answer, shape):
-        return (
-            np.array(resize(image, shape, mode='reflect')),
-            np.array([
-                int(coord * shape[i % 2] / np.shape(image)[i % 2])
-                for i, coord in enumerate(answer)
-            ])
-        )
-
-    def _resize(self, image, answer):
-        return ResizeImageGenerator.resize(image, answer, self._shape)
-
-    def flow(self, x, y, batch_size=32):
-        return BatchIterator(x, y, self, batch_size)
-
-
-class BatchIterator:
-    def __init__(self, x, y, image_generator, batch_size):
-        self._x = x
-        self._y = y
-        self._image_generator = image_generator
+class LabeledBatchIterator:
+    def __init__(self, filenames, directory, resize_shape, batch_size, train_gt):
+        self._filenames = filenames
+        self._directory = directory
+        self._resize_shape = resize_shape
         self._batch_size = batch_size
+        self._train_gt = train_gt
 
-    def _get_batch(self):
-        random_indexes = np.random.permutation(len(self._x))[:self._batch_size]
-        return self._x[random_indexes], self._y[random_indexes]
-    
-    def _resize(self, x, y):
-        return self._image_generator._resize(x, y)
+    def _get_image(self, index):
+        return imread(join(self._directory, self._filenames[index]))
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        x, y = self._get_batch()
-        x_batch, y_batch = [], []
-        for current_x, current_y in zip(x, y):
-            resized_x, resized_y = self._resize(current_x, current_y)
-            x_batch.append(resized_x)
-            y_batch.append(resized_y)
-        return np.array(x_batch), np.array(y_batch)
+        random_indexes = np.random.permutation(len(self._filenames))[:self._batch_size]
+        return np.array([
+            resize(self._get_image(index), self._resize_shape, mode='reflect')
+            for index in random_indexes
+        ]), np.array([[
+                int(coord * self._resize_shape[i % 2] / np.shape(self._get_image(index))[i % 2])
+                for i, coord in enumerate(self._train_gt[self._filenames[index]])
+            ] for index in random_indexes
+        ])
 
-
-def get_images(img_dir):
-    file_names = listdir(img_dir)
-    return np.array([
-        imread(join(img_dir, file_name))
-        for file_name in file_names
-    ])
-
-def get_answers(img_dir, train_gt):
-    file_names = listdir(img_dir)
-    return np.array([
-        train_gt[file_name]
-        for file_name in file_names
-    ])
 
 def build_model(model, input_shape, output_size):
     regularization_lambda = 5e-3
@@ -98,7 +60,6 @@ def build_model(model, input_shape, output_size):
                 kernel_regularizer=regularizers.l2(regularization_lambda),
                 activation='elu'
             ))
-
 
     add_Conv2D_relu(model, 64, (3, 3), input_shape)
     add_Conv2D_relu(model, 64, (3, 3))
@@ -121,6 +82,7 @@ def build_model(model, input_shape, output_size):
     model.add(Dense(512, activation='elu', kernel_regularizer=regularizers.l2(regularization_lambda)))
 
     model.add(Dense(output_size))
+
 
 class ValidationCallback:
     def __init__(self, model, generator, steps):
@@ -152,23 +114,24 @@ class ValidationCallback:
     def on_batch_end(self, batch, logs):
         pass
 
+
 def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
     epochs = 1 if fast_train else 1000
     batch_size = 32
+    label_len = 28
     img_size = IMG_SIZE
     code_dir = dirname(abspath(__file__))
     model_path = join(code_dir, 'facepoints_model.hdf5')
 
-    train_x = get_images(train_img_dir)
-    train_y = get_answers(train_img_dir, train_gt)
+    all_filenames = listdir(train_img_dir)
+    np.random.shuffle(all_filenames)
     if validation:
-        train_x, test_x, train_y, test_y = train_test_split(
-            resized_x, resized_y, test_size=0.3, random_state=42
-        )
+        train_filenames = all_filenames[int(len(train_filenames) * validation):]
+        test_filenames = all_filenames[:int(len(train_filenames) * validation)]
 
     if fast_train or not exists(model_path):
         model = Sequential()
-        build_model(model, img_size, len(train_y[0]))
+        build_model(model, img_size, label_len)
     else:
         model = load_model(model_path)
 
@@ -178,40 +141,46 @@ def train_detector(train_gt, train_img_dir, fast_train, validation=0.0):
         metrics=['mse']
     )
 
-    datagen = ResizeImageGenerator(img_size)
     if validation:
         model.fit_generator(
-            datagen.flow(train_x, train_y, batch_size),
-            steps_per_epoch=int(len(train_y) / batch_size),
+            LabeledBatchIterator(train_filenames, train_img_dir, img_size, batch_size, train_gt),
+            steps_per_epoch=int(len(train_filenames) / batch_size),
             epochs=epochs,
             callbacks=[ValidationCallback(
                 model,
-                datagen.flow(test_x, test_y, batch_size),
-                int(len(test_y) / batch_size),
+                LabeledBatchIterator(test_filenames, train_img_dir, img_size, batch_size, train_gt),
+                int(len(test_filenames) / batch_size)
             )]
         )
     else:
         model.fit_generator(
-            datagen.flow(train_x, train_y, batch_size),
-            steps_per_epoch=int(len(train_y) / batch_size),
+            LabeledBatchIterator(all_filenames, train_img_dir, img_size, batch_size, train_gt),
+            steps_per_epoch=int(len(all_filenames) / batch_size),
             epochs=epochs
         )
 
 
 def detect(model, test_img_dir):
-    shape = IMG_SIZE
-    test_x = get_images(test_img_dir)
-    resized_test_x = np.array([
-        resize(x, shape, mode='reflect')
-        for x in test_x
+    img_size = IMG_SIZE
+    filenames = listdir(test_img_dir)
+    batch_size = 128
+    random_indexes = np.random.permutation(len(filenames))[:batch_size]
+    filenames = [filenames[index] for index in random_indexes]
+    test_images = np.array([
+        resize(imread(join(test_img_dir, filename)), img_size, mode='reflect')
+        for filename in filenames
     ])
-    answers = model.predict(resized_test_x, batch_size=128)
+    old_shapes = np.array([
+        np.shape(imread(join(test_img_dir, filename)))
+        for filename in filenames
+    ])
+    answers = model.predict(test_images, batch_size=batch_size)
     resized_back_answers = np.array([[
-            int(coord * np.shape(image)[i % 2] / shape[i % 2])
+            int(coord * old_shape[i % 2] / img_size[i % 2])
             for i, coord in enumerate(answer)
-        ] for image, answer in zip(test_x, answers)
+        ] for old_shape, answer in zip(old_shapes, answers)
     ])
     return {
-        file_name: answer
-        for file_name, answer in zip(file_names, resized_back_answers)
+        filename: answer
+        for filename, answer in zip(filenames, resized_back_answers)
     }
