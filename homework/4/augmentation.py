@@ -8,11 +8,10 @@ class Augmentation:
     rotation, featurewise_center and featurewise_std_normalization may be added futher
     '''
     def __init__(self, width_shift=0, height_shift=0,
-                 horizontal_flip=False, vertical_flip=False):
+                 horizontal_flip=False):
         self._width_shift = width_shift
         self._height_shift = height_shift
         self._horizontal_flip = horizontal_flip
-        self._vertical_flip = vertical_flip
 
     @staticmethod
     def _shift_image(image, shift, axis):
@@ -41,53 +40,57 @@ class Augmentation:
         else:
             return np.concatenate((edge, crop), axis=axis) 
 
-    def apply(self, image, coordinates):
+    @staticmethod
+    def _swap_x_indexes(coords, index_1, index_2):
+        index_1 -= 1
+        index_2 -= 1
+        coords[::2][index_1], coords[::2][index_2] = coords[::2][index_2], coords[::2][index_1]
+
+    def apply(self, image, coords):
         image = np.copy(image)
-        coordinates = np.copy(coordinates)
+        coords = np.copy(coords)
 
         if self._horizontal_flip:
             image = image[::,::-1]
-            coordinates[0::2] = np.shape(image)[1] - coordinates[0::2]
-
-        if self._vertical_flip:
-            image = image[::-1]
-            coordinates[1::2] = np.shape(image)[0] - coordinates[1::2]
+            coords[::2] = np.shape(image)[1] - coords[::2]
+            swap_pairs = [
+                (1, 4), (2, 3), (5, 10), (6, 9), (7, 8), (12, 14)
+            ]
+            for index_1, index_2 in swap_pairs:
+                Augmentation._swap_x_indexes(coords, index_1, index_2)
 
         if self._width_shift != 0:
             image = Augmentation._shift_image(image, self._width_shift, 1)
-            coordinates[0::2] -= self._width_shift
+            coords[::2] -= self._width_shift
 
         if self._height_shift != 0:
             image = Augmentation._shift_image(image, self._height_shift, 0)
-            coordinates[1::2] -= self._height_shift
+            coords[1::2] -= self._height_shift
 
-        return image, coordinates
+        return image, coords
 
     
 def get_random_augmentation(width_shift=0, height_shift=0,
-                            horizontal_flip=False, vertical_flip=False):
+                            horizontal_flip=False):
     return Augmentation(
         np.random.randint(-width_shift, width_shift),
         np.random.randint(-height_shift, height_shift),
-        bool(np.random.binomial(1, 0.5)) if horizontal_flip else False,
-        bool(np.random.binomial(1, 0.5)) if vertical_flip else False
+        bool(np.random.binomial(1, 0.5)) if horizontal_flip else False
     )
 
 
 class ImageGenerator:
     def __init__(self, width_shift=5, height_shift=5,
-                 horizontal_flip=True, vertical_flip=False):
+                 horizontal_flip=True):
         self._width_shift = width_shift
         self._height_shift = height_shift
         self._horizontal_flip = horizontal_flip
-        self._vertical_flip = vertical_flip
 
     def random_transform(self, x, y):
         random_augmentation = get_random_augmentation(
             self._width_shift,
             self._height_shift,
-            self._horizontal_flip,
-            self._vertical_flip
+            self._horizontal_flip
         )
         return random_augmentation.apply(x, y)
 
